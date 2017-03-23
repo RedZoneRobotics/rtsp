@@ -27,6 +27,16 @@ const (
 // |            contributing source (CSRC) identifiers             |
 // |                             ....                              |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+type JPEGPacket struct {
+	TypeSpecific   bool
+	FragmentOffset uint
+	Type           byte
+	Width          uint
+	Height         uint
+	Payload        []byte
+}
+
 type RtpPacket struct {
 	Version        byte
 	Padding        bool
@@ -36,13 +46,7 @@ type RtpPacket struct {
 	SequenceNumber uint
 	Timestamp      uint
 	SyncSource     uint
-
-	CSRC []uint
-
-	ExtHeader uint
-	ExtData   []byte
-
-	Payload []byte
+	JPEGPacket     JPEGPacket
 }
 
 type Session struct {
@@ -108,39 +112,34 @@ func (s *Session) HandleRtcpConn(conn net.PacketConn) {
 
 func (s *Session) handleRtp(buf []byte) {
 	packet := RtpPacket{
-		Version:        buf[0] & 0x03,
+		Version:        buf[0] >> 6 & 0x03,
 		Padding:        buf[0]&hasRtpPadding != 0,
-		Ext:            buf[0]&hasRtpExt != 0,
-		CSRC:           make([]uint, buf[0]>>4),
-		Marker:         buf[1]&1 != 0,
+		Marker:         buf[1]>>7&1 != 0,
 		PayloadType:    buf[1] >> 1,
 		SequenceNumber: toUint(buf[2:4]),
 		Timestamp:      toUint(buf[4:8]),
 		SyncSource:     toUint(buf[8:12]),
 	}
+
 	if packet.Version != RTP_VERSION {
-		panic("Unsupported version")
+		return
+
 	}
 
-	i := 12
-
-	for j := range packet.CSRC {
-		packet.CSRC[j] = toUint(buf[i : i+4])
-		i += 4
+	if len(buf) < 12 {
+		return
 	}
 
-	if packet.Ext {
-		packet.ExtHeader = toUint(buf[i : i+2])
-		length := toUint(buf[i+2 : i+4])
-		i += 4
-		if length > 0 {
-			packet.ExtData = buf[i : i+int(length)*4]
-			i += int(length) * 4
-		}
+	jpegPacket := JPEGPacket{
+		TypeSpecific:   buf[12]&1 != 0,
+		FragmentOffset: toUint(buf[13:16]),
+		Type:           buf[17],
+		Width:          uint(buf[18]) * 8,
+		Height:         uint(buf[19]) * 8,
+		Payload:        buf[20:],
 	}
 
-	packet.Payload = buf[i:]
-
+	packet.JPEGPacket = jpegPacket
 	s.rtpChan <- packet
 }
 
