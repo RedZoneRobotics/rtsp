@@ -61,8 +61,8 @@ type Session struct {
 }
 
 func New(rtp, rtcp net.PacketConn) *Session {
-	rtpChan := make(chan RtpPacket, 10)
-	rtcpChan := make(chan []byte, 10)
+	rtpChan := make(chan RtpPacket, 1000)
+	rtcpChan := make(chan []byte, 1000)
 	s := &Session{
 		Rtp:      rtp,
 		Rtcp:     rtcp,
@@ -84,7 +84,7 @@ func toUint(arr []byte) (ret uint) {
 }
 
 func (s *Session) HandleRtpConn(conn net.PacketConn) {
-	buf := make([]byte, 4096)
+	buf := make([]byte, 10000)
 	for {
 		n, _, err := conn.ReadFrom(buf)
 		if err != nil {
@@ -93,17 +93,18 @@ func (s *Session) HandleRtpConn(conn net.PacketConn) {
 
 		cpy := make([]byte, n)
 		copy(cpy, buf)
-		go s.handleRtp(cpy)
+		s.handleRtp(cpy)
 	}
 }
 
 func (s *Session) HandleRtcpConn(conn net.PacketConn) {
-	buf := make([]byte, 4096)
+	buf := make([]byte, 10000)
 	for {
 		n, _, err := conn.ReadFrom(buf)
 		if err != nil {
 			panic(err)
 		}
+
 		cpy := make([]byte, n)
 		copy(cpy, buf)
 		go s.handleRtcp(cpy)
