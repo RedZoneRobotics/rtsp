@@ -1,6 +1,8 @@
 package rtp
 
 import (
+	"fmt"
+	"log"
 	"net"
 )
 
@@ -58,21 +60,25 @@ type Session struct {
 
 	rtpChan  chan<- RtpPacket
 	rtcpChan chan<- []byte
+
+	Control chan bool
 }
 
 func New(rtp, rtcp net.PacketConn) *Session {
 	rtpChan := make(chan RtpPacket, 1000)
-	rtcpChan := make(chan []byte, 1000)
+	ctrlChan := make(chan bool)
+	//rtcpChan := make(chan []byte, 1000)
 	s := &Session{
-		Rtp:      rtp,
-		Rtcp:     rtcp,
-		RtpChan:  rtpChan,
-		RtcpChan: rtcpChan,
-		rtpChan:  rtpChan,
-		rtcpChan: rtcpChan,
+		Rtp:     rtp,
+		Rtcp:    rtcp,
+		RtpChan: rtpChan,
+		Control: ctrlChan,
+		//RtcpChan: rtcpChan,
+		rtpChan: rtpChan,
 	}
+
 	go s.HandleRtpConn(rtp)
-	go s.HandleRtcpConn(rtcp)
+	//go s.HandleRtcpConn(rtcp)
 	return s
 }
 
@@ -84,11 +90,13 @@ func toUint(arr []byte) (ret uint) {
 }
 
 func (s *Session) HandleRtpConn(conn net.PacketConn) {
-	buf := make([]byte, 10000)
+	buf := make([]byte, 9000)
 	for {
 		n, _, err := conn.ReadFrom(buf)
 		if err != nil {
-			panic(err)
+			s.Control <- true
+			log.Println("RTP Connection closed")
+			return
 		}
 
 		cpy := make([]byte, n)
@@ -99,15 +107,16 @@ func (s *Session) HandleRtpConn(conn net.PacketConn) {
 
 func (s *Session) HandleRtcpConn(conn net.PacketConn) {
 	buf := make([]byte, 10000)
+
 	for {
 		n, _, err := conn.ReadFrom(buf)
 		if err != nil {
-			panic(err)
+			return
 		}
 
 		cpy := make([]byte, n)
 		copy(cpy, buf)
-		go s.handleRtcp(cpy)
+		s.handleRtcp(cpy)
 	}
 }
 
@@ -123,11 +132,13 @@ func (s *Session) handleRtp(buf []byte) {
 	}
 
 	if packet.Version != RTP_VERSION {
+		log.Println("Wrong version")
 		return
 
 	}
 
 	if len(buf) < 12 {
+		log.Println("short packet")
 		return
 	}
 
@@ -142,8 +153,10 @@ func (s *Session) handleRtp(buf []byte) {
 
 	packet.JPEGPacket = jpegPacket
 	s.rtpChan <- packet
+
 }
 
 func (s *Session) handleRtcp(buf []byte) {
 	// TODO: implement rtcp
+	fmt.Println("RTCP Message")
 }
